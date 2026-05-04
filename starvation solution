@@ -1,0 +1,431 @@
+package Process;
+
+import java.io.*;
+import java.util.*;
+
+public class CPUScheduler {
+
+    private static final int TOTAL_MEMORY = 2048;
+    private static int availableMemory = TOTAL_MEMORY;
+
+    private static final LinkedList<PCB> jobQueue = new LinkedList<>();
+    private static final LinkedList<PCB> readyQueue = new LinkedList<>();
+
+    // هذا مهم عشان نضمن أن كل العمليات تنطبع في SJF/RR/Priority
+    private static final ArrayList<PCB> allJobs = new ArrayList<>();
+
+    private static final Object jobQueueLock = new Object();
+    private static final Object readyQueueLock = new Object();
+    private static final Object memoryLock = new Object();
+    private static final Object allJobsLock = new Object();
+
+    private static volatile boolean thread1Done = false;
+    private static volatile boolean allDone = false;
+
+    public static void main(String[] args) throws Exception {
+
+        Scanner sc = new Scanner(System.in);
+
+        System.out.println("________________________________________");
+        System.out.println("|                                       |");
+        System.out.println("|  Multithreaded CPU Scheduling Sim     |");
+        System.out.println("|_______________________________________|");
+
+        System.out.println("\nSelect Scheduling Algorithm:");
+        System.out.println("  1. Shortest Job First (SJF)");
+        System.out.println("  2. Round Robin (RR, q=5ms)");
+        System.out.println("  3. Priority Scheduling (Non-Preemptive)");
+        System.out.print("Choice [1/2/3]: ");
+
+        int choice = Integer.parseInt(sc.nextLine().trim());
+
+        String algorithm;
+        switch (choice) {
+            case 1: algorithm = "SJF"; break;
+            case 2: algorithm = "RR"; break;
+            case 3: algorithm = "Priority"; break;
+            default:
+                System.out.println("Invalid choice. Defaulting to SJF.");
+                algorithm = "SJF";
+        }
+
+        System.out.println("\nRunning " + algorithm + " scheduler...\n");
+
+        final String finalFilePath = "job.txt";
+        final String finalAlgorithm = algorithm;
+
+        Thread thread1 = new Thread(() -> {
+            try {
+                BufferedReader br = new BufferedReader(new FileReader(finalFilePath));
+                String line;
+                int order = 0;
+
+                while ((line = br.readLine()) != null) {
+                    line = line.trim();
+                    if (line.isEmpty()) continue;
+
+                    // Format: ID:BurstTime:Priority;Memory
+                    String[] parts = line.split(";");
+                    String[] left = parts[0].split(":");
+
+                    int id = Integer.parseInt(left[0].trim());
+                    int burst = Integer.parseInt(left[1].trim());
+                    int priority = Integer.parseInt(left[2].trim());
+                    int memory = Integer.parseInt(parts[1].trim());
+
+                    PCB pcb = new PCB(id, burst, priority, memory, order++);
+
+                    synchronized (allJobsLock) {
+                        allJobs.add(pcb);
+                    }
+
+                    synchronized (jobQueueLock) {
+                        jobQueue.add(pcb);
+                        System.out.println("[Thread 1] Process P" + id +
+                                " added to Job Queue (Burst=" + burst +
+                                "ms, Priority=" + priority +
+                                ", Memory=" + memory + "MB)");
+                    }
+                }
+
+                br.close();
+
+            } catch (IOException e) {
+                System.err.println("[Thread 1] Error reading file: " + e.getMessage());
+            }
+
+            thread1Done = true;
+            System.out.println("[Thread 1] All processes loaded. Thread terminating.");
+
+        }, "Thread-1-FileLoader");
+
+        Thread thread2 = new Thread(() -> {
+
+            while (true) {
+                PCB selectedJob = null;
+
+                synchronized (jobQueueLock) {
+                    Iterator<PCB> iterator = jobQueue.iterator();
+
+                    while (iterator.hasNext()) {
+                        PCB job = iterator.next();
+
+                        synchronized (memoryLock) {
+                            if (availableMemory >= job.memoryRequired) {
+                                selectedJob = job;
+                                iterator.remove();
+                                availableMemory -= job.memoryRequired;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (selectedJob != null) {
+                    selectedJob.state = "ready";
+
+                    synchronized (readyQueueLock) {
+                        readyQueue.add(selectedJob);
+                    }
+
+                    System.out.println("[Thread 2] Process P" + selectedJob.processID +
+                            " moved to Ready Queue. Available memory: " +
+                            availableMemory + "MB");
+                }
+
+                if (thread1Done && allDone) {
+                    break;
+                }
+
+                try {
+                    Thread.sleep(1);
+                } catch (InterruptedException ignored) {}
+            }
+
+            System.out.println("[Thread 2] All processes admitted and completed. Thread terminating.");
+
+        }, "Thread-2-MemoryManager");
+
+        thread1.start();
+        thread2.start();
+
+        thread1.join();
+
+        List<PCB> allProcesses;
+        synchronized (allJobsLock) {
+            allProcesses = new ArrayList<>(allJobs);
+        }
+
+        List<GanttEntry> gantt = new ArrayList<>();
+        List<PCB> completed = new ArrayList<>();
+
+        switch (finalAlgorithm) {
+            case "SJF":
+                runSJF(allProcesses, gantt, completed);
+                break;
+            case "RR":
+                runRR(allProcesses, gantt, completed);
+                break;
+            case "Priority":
+                runPriority(allProcesses, gantt, completed);
+                break;
+        }
+
+        allDone = true;
+        thread2.join();
+
+        printGanttChart(gantt);
+        printTable(completed);
+        printMetrics(completed);
+
+        if (finalAlgorithm.equals("Priority")) {
+            printStarvationInfo(completed);
+        }
+
+        sc.close();
+    }
+
+    private static void runSJF(List<PCB> processes, List<GanttEntry> gantt, List<PCB> completed) {
+        List<PCB> queue = new ArrayList<>(processes);
+        int currentTime = 0;
+
+        while (!queue.isEmpty()) {
+            queue.sort((a, b) -> {
+                if (a.burstTime != b.burstTime) {
+                    return a.burstTime - b.burstTime;
+                }
+                return a.arrivalOrder - b.arrivalOrder;
+            });
+
+            PCB p = queue.remove(0);
+            p.state = "running";
+
+            int burstStart = p.burstTime;
+
+            if (p.startTime == -1) {
+                p.startTime = currentTime;
+            }
+
+            int endTime = currentTime + p.burstTime;
+
+            gantt.add(new GanttEntry(p.processID, currentTime, endTime, burstStart, 0));
+
+            p.terminationTime = endTime;
+            p.turnaroundTime = p.terminationTime;
+            p.waitingTime = p.turnaroundTime - p.burstTime;
+            p.state = "terminated";
+
+            completed.add(p);
+            currentTime = endTime;
+        }
+    }
+
+    private static void runRR(List<PCB> processes, List<GanttEntry> gantt, List<PCB> completed) {
+        int quantum = 5;
+        Queue<PCB> queue = new LinkedList<>(processes);
+        int currentTime = 0;
+
+        while (!queue.isEmpty()) {
+            PCB p = queue.poll();
+            p.state = "running";
+
+            if (p.startTime == -1) {
+                p.startTime = currentTime;
+            }
+
+            int burstStart = p.remainingBurst;
+            int execTime = Math.min(quantum, p.remainingBurst);
+            int endTime = currentTime + execTime;
+
+            gantt.add(new GanttEntry(
+                    p.processID,
+                    currentTime,
+                    endTime,
+                    burstStart,
+                    burstStart - execTime
+            ));
+
+            p.remainingBurst -= execTime;
+            currentTime = endTime;
+
+            if (p.remainingBurst == 0) {
+                p.terminationTime = currentTime;
+                p.turnaroundTime = p.terminationTime;
+                p.waitingTime = p.turnaroundTime - p.burstTime;
+                p.state = "terminated";
+                completed.add(p);
+            } else {
+                p.state = "ready";
+                queue.add(p);
+            }
+        }
+    }
+
+    private static void runPriority(List<PCB> processes, List<GanttEntry> gantt, List<PCB> completed) {
+        List<PCB> queue = new ArrayList<>(processes);
+        int currentTime = 0;
+
+        Set<Integer> starvedProcesses = new HashSet<>();
+
+        while (!queue.isEmpty()) {
+
+            int starvationThreshold = queue.size() * 5;
+
+            queue.sort((a, b) -> {
+                if (a.priority != b.priority) {
+                    return a.priority - b.priority;
+                }
+                return a.arrivalOrder - b.arrivalOrder;
+            });
+
+            PCB p = queue.remove(0);
+
+            p.state = "running";
+            int burstStart = p.burstTime;
+
+            if (p.startTime == -1) {
+                p.startTime = currentTime;
+            }
+
+            int endTime = currentTime + p.burstTime;
+
+            gantt.add(new GanttEntry(p.processID, currentTime, endTime, burstStart, 0));
+
+            int executedTime = p.burstTime;
+
+            for (PCB other : queue) {
+                other.timeInReadyQueue += executedTime;
+
+                if (other.timeInReadyQueue > starvationThreshold) {
+                    starvedProcesses.add(other.processID);
+                }
+
+                int agingSteps = other.timeInReadyQueue / 4;
+
+                if (agingSteps > 0 && other.priority > 1) {
+                    other.priority = Math.max(1, other.priority - agingSteps);
+                }
+            }
+
+            p.terminationTime = endTime;
+            p.turnaroundTime = p.terminationTime;
+            p.waitingTime = p.turnaroundTime - p.burstTime;
+
+            if (starvedProcesses.contains(p.processID)) {
+                p.state = "terminated(starved)";
+            } else {
+                p.state = "terminated";
+            }
+
+            completed.add(p);
+            currentTime = endTime;
+        }
+    }
+
+    private static void printGanttChart(List<GanttEntry> gantt) {
+
+        System.out.println("\n ________________________________________________________");
+        System.out.println("|                        GANTT CHART                     |");
+        System.out.println("|________________________________________________________|\n");
+
+        for (GanttEntry e : gantt) {
+            System.out.print("+-------");
+        }
+        System.out.println("+");
+
+        for (GanttEntry e : gantt) {
+            System.out.printf("|  P%-3d ", e.processID);
+        }
+        System.out.println("|");
+
+        for (GanttEntry e : gantt) {
+            System.out.print("+-------");
+        }
+        System.out.println("+");
+
+        System.out.printf("%-8d", 0);
+        for (GanttEntry e : gantt) {
+            System.out.printf("%-8d", e.endTime);
+        }
+        System.out.println();
+
+        for (GanttEntry e : gantt) {
+            System.out.printf("%-8s", "[" + e.burstAtStart + "->" + e.burstAtEnd + "]");
+        }
+        System.out.println();
+
+        System.out.println("\n------ Detailed Timeline ------");
+        System.out.println("+------+--------+--------+");
+        System.out.println("| PID  | Start  |  End   |");
+        System.out.println("+------+--------+--------+");
+
+        for (GanttEntry e : gantt) {
+            System.out.printf("| P%-3d | %-6d | %-6d |%n",
+                    e.processID, e.startTime, e.endTime);
+        }
+
+        System.out.println("+------+--------+--------+");
+    }
+
+    private static void printTable(List<PCB> completed) {
+
+        System.out.println("\n ___________________________________________________________________________");
+        System.out.println("|                           PROCESS STATISTICS TABLE                        |");
+        System.out.println("|___________________________________________________________________________|");
+        System.out.println("|  PID   | Burst(ms) | Start(ms)  | Terminate(ms)   | Wait(ms)    | TAT(ms) |");
+        System.out.println("|--------|-----------|------------|-----------------|-------------|---------|");
+
+        for (PCB p : completed) {
+            System.out.printf("| P%-5d | %-9d | %-10d | %-15d | %-11d | %-7d |%n",
+                    p.processID,
+                    p.burstTime,
+                    p.startTime,
+                    p.terminationTime,
+                    p.waitingTime,
+                    p.turnaroundTime);
+        }
+
+        System.out.println("|________|___________|____________|_________________|_____________|_________|");
+    }
+
+    private static void printMetrics(List<PCB> completed) {
+
+        int sumTAT = 0;
+        int sumWait = 0;
+
+        for (PCB p : completed) {
+            sumTAT += p.turnaroundTime;
+            sumWait += p.waitingTime;
+        }
+
+        double avgTAT = completed.isEmpty() ? 0 : (double) sumTAT / completed.size();
+        double avgWait = completed.isEmpty() ? 0 : (double) sumWait / completed.size();
+
+        System.out.println("\n __________________________________");
+        System.out.println("|        PERFORMANCE METRICS       |");
+        System.out.println("|__________________________________|");
+        System.out.printf("|  Avg Turnaround Time: %7.2f ms |%n", avgTAT);
+        System.out.printf("|  Avg Waiting Time   : %7.2f ms |%n", avgWait);
+        System.out.println("|__________________________________|");
+    }
+
+    private static void printStarvationInfo(List<PCB> completed) {
+
+        System.out.println("\n  __________________________________");
+        System.out.println("|        STARVATION REPORT          |");
+        System.out.println("|___________________________________|");
+
+        boolean found = false;
+
+        for (PCB p : completed) {
+            if (p.state.contains("starved")) {
+                System.out.println(" P" + p.processID + " There is starvation.");
+                found = true;
+            }
+        }
+
+        if (!found) {
+            System.out.println(" No processes suffered from starvation.");
+        }
+    }
+}
