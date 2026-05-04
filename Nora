@@ -1,0 +1,95 @@
+///////////////////////////////////// Nora part 2 start here 
+	                ////////////////////////////////////////
+
+
+	                // if Thread1 done AND job queue empty AND all processes finished
+	                if (thread1Done && jobQueue.isEmpty() && allDone) {
+	                    break;
+	                }
+
+	                
+	                //this try pause Thread2 to reduce CPU storage 
+	                try { Thread.sleep(1); } catch (InterruptedException ignored) {}
+	            
+	            }// end while
+	            
+	            
+	            System.out.println("[Thread 2] All processes admitted and completed. Thread terminating.");
+	        
+	        
+	         }, "Thread-2-MemoryManager");
+
+	        
+	        // Start threads
+	        thread1.start();
+	        thread2.start();
+
+	        // Wait for Thread 1 to finish loading
+	        thread1.join();
+
+	        //wait for Thread 2 to transfer to the ready queue
+	        Thread.sleep(50);
+
+	        // ── Main Thread array for algorithm───────────────────────────────────────────
+	        List<PCB> allProcesses = new ArrayList<>();
+	       
+	        synchronized (readyQueueLock) {
+	            allProcesses.addAll(readyQueue);
+	        }
+	        
+	        
+	        // Also grab remaining in job queue (in case the process did not enter the ready queue)
+	        synchronized (jobQueueLock) {
+	            allProcesses.addAll(jobQueue);
+	        }
+
+	        List<GanttEntry> gantt = new ArrayList<>();
+	        List<PCB> completed   = new ArrayList<>();
+
+	        switch (finalAlgorithm) {
+	            case "SJF":      runSJF(allProcesses, gantt, completed);      break;
+	            case "RR":       runRR(allProcesses, gantt, completed);       break;
+	            case "Priority": runPriority(allProcesses, gantt, completed); break;
+	        }
+
+	        // Signal Thread 2 to stop
+	        allDone = true;
+	        thread2.join();
+
+	        // ── Output ────────────────────────────────────────────────────────────
+	        printGanttChart(gantt);
+	        printTable(completed);
+	        printMetrics(completed);
+
+	        if (finalAlgorithm.equals("Priority")) {
+	            printStarvationInfo(completed);
+	        }
+
+	        sc.close();
+	    }
+
+	    // ═════════════════════════════════════════════════════════════════════════
+	    //  SCHEDULING ALGORITHMS
+	    // ═════════════════════════════════════════════════════════════════════════
+
+	    // ── SJF (Non-Preemptive) ─────────────────────────────────────────────────
+	    private static void runSJF(List<PCB> processes, List<GanttEntry> gantt, List<PCB> completed) {
+	        List<PCB> queue = new ArrayList<>(processes);
+	        int currentTime = 0;
+
+	        while (!queue.isEmpty()) {
+	            // Sort by burst time, ties broken by arrival order
+	            queue.sort((a, b) -> a.burstTime != b.burstTime
+	                    ? a.burstTime - b.burstTime
+	                    : a.arrivalOrder - b.arrivalOrder);
+
+	            PCB p = queue.remove(0);
+	            p.state = "running";
+	            int burstStart = p.burstTime;
+
+	            if (p.startTime == -1) p.startTime = currentTime;
+
+	            
+	            
+///////////////////////////////////// Sadeem part 3 start here 
+////////////////////////////////////////
