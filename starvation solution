@@ -214,8 +214,13 @@ public class CPUScheduler {
             p.turnaroundTime = p.terminationTime;
             p.waitingTime = p.turnaroundTime - p.burstTime;
             p.state = "terminated";
-
+            
             completed.add(p);
+
+            synchronized (memoryLock) {
+                availableMemory += p.memoryRequired;
+            }
+
             currentTime = endTime;
         }
     }
@@ -254,6 +259,9 @@ public class CPUScheduler {
                 p.waitingTime = p.turnaroundTime - p.burstTime;
                 p.state = "terminated";
                 completed.add(p);
+                synchronized (memoryLock) {
+                    availableMemory += p.memoryRequired;
+                }
             } else {
                 p.state = "ready";
                 queue.add(p);
@@ -294,13 +302,17 @@ public class CPUScheduler {
             int executedTime = p.burstTime;
 
             for (PCB other : queue) {
+                int oldTime = other.timeInReadyQueue;
                 other.timeInReadyQueue += executedTime;
 
                 if (other.timeInReadyQueue > starvationThreshold) {
                     starvedProcesses.add(other.processID);
                 }
 
-                int agingSteps = other.timeInReadyQueue / 4;
+                // aging: كم مرة تجاوزنا حدود الـ 4ms
+                int stepsBefore = oldTime / 4;
+                int stepsAfter  = other.timeInReadyQueue / 4;
+                int agingSteps  = stepsAfter - stepsBefore;
 
                 if (agingSteps > 0 && other.priority > 1) {
                     other.priority = Math.max(1, other.priority - agingSteps);
@@ -319,6 +331,10 @@ public class CPUScheduler {
 
             completed.add(p);
             currentTime = endTime;
+           
+            synchronized (memoryLock) {
+                availableMemory += p.memoryRequired;
+            }
         }
     }
 
