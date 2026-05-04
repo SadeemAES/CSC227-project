@@ -250,75 +250,77 @@ package csc227;
 	        }
 	    }
 
-	    // ── Priority (Non-Preemptive) with Aging ──────────────────────────────────
-	    private static void runPriority(List<PCB> processes, List<GanttEntry> gantt, List<PCB> completed) {
-	        List<PCB> queue = new ArrayList<>(processes);
-	        int currentTime = 0;
-	        int N = queue.size();
-	        int starvationhold = N * 5; // N × 5 ms
+	   // ── Priority (Non-Preemptive) with Aging ──────────────────────────────────
+private static void runPriority(List<PCB> processes, List<GanttEntry> gantt, List<PCB> completed) {
+    List<PCB> queue = new ArrayList<>(processes);
+    int currentTime = 0;
+    int N = queue.size();
+    int starvationhold = N * 5; // N × 5 ms
 
-	        // Track original priorities for starvation report
-	        int[] originalPriority = new int[processes.size() + 1];
-	        for (PCB p : queue) originalPriority[p.processID] = p.priority;
+    // Track original priorities for starvation report
+    int[] originalPriority = new int[processes.size() + 1];
+    for (PCB p : queue) originalPriority[p.processID] = p.priority;
 
-	        List<Integer> starvedProcesses = new ArrayList<>();
+    List<Integer> starvedProcesses = new ArrayList<>();
 
-	        while (!queue.isEmpty()) {
-	            // Apply aging: every 4ms, decrease priority number by 1 for waiting processes
-	            for (PCB p : queue) {
-	                p.timeInReadyQueue += 1; // simulate 1ms tick
-	                if (p.timeInReadyQueue % 4 == 0 && p.priority > 1) {
-	                    p.priority--; // improve priority
-	                }
-	                // Check starvation
-	                if (p.timeInReadyQueue > starvationhold) {
-	                    if (!starvedProcesses.contains(p.processID)) {
-	                        starvedProcesses.add(p.processID);
-	                    }
-	                }
-	            }
+    while (!queue.isEmpty()) {
+        // Apply aging: every 4ms, decrease priority number by 1 for waiting processes
+        for (PCB p : queue) {
+            p.timeInReadyQueue += 1; // simulate 1ms tick
 
-	            // Sort by priority (lowest number = highest priority), ties by arrival order
-	            queue.sort((a, b) -> a.priority != b.priority ? a.priority - b.priority
-	                    : a.arrivalOrder - b.arrivalOrder);
+            // Check starvation
+            if (p.timeInReadyQueue > starvationhold) {
+                if (!starvedProcesses.contains(p.processID)) {
+                    starvedProcesses.add(p.processID);
+                }
+                // Aging only for starved processes
+                if (p.priority > 1) {
+                    p.priority--; // improve priority
+                }
+            }
+        }
 
-	            PCB p = queue.remove(0);
-	            p.state = "running";
-	            int burstStart = p.burstTime;
+        // Sort by priority (lowest number = highest priority), ties by arrival order
+        queue.sort((a, b) -> a.priority != b.priority ? a.priority - b.priority
+                : a.arrivalOrder - b.arrivalOrder);
 
-	            if (p.startTime == -1) p.startTime = currentTime;
+        PCB p = queue.remove(0);
+        p.state = "running";
+        int burstStart = p.burstTime;
 
-	            int endTime = currentTime + p.burstTime;
-	            gantt.add(new GanttEntry(p.processID, currentTime, endTime, burstStart, 0));
+        if (p.startTime == -1) p.startTime = currentTime;
 
-	            p.terminationTime = endTime;
-	            p.turnaroundTime  = p.terminationTime;
-	            p.waitingTime     = p.turnaroundTime - p.burstTime;
-	            p.state           = "terminated";
+        int endTime = currentTime + p.burstTime;
+        gantt.add(new GanttEntry(p.processID, currentTime, endTime, burstStart, 0));
 
-	            // Attach starvation flag
-	            if (starvedProcesses.contains(p.processID)) {
-	                p.state = "terminated(starved)";
-	            }
+        p.terminationTime = endTime;
+        p.turnaroundTime  = p.terminationTime;
+        p.waitingTime     = p.turnaroundTime - p.burstTime;
+        p.state           = "terminated";
 
-	            completed.add(p);
-	            
-	            synchronized (memoryLock) {
-                    availableMemory += p.memoryRequired;
-                }  
-	            
-	            currentTime = endTime;
-	        }
+        // Attach starvation flag
+        if (starvedProcesses.contains(p.processID)) {
+            p.state = "terminated(starved)";
+        }
 
-	        // Store starvation info for printing
-	        for (PCB p : completed) {
-	            if (starvedProcesses.contains(p.processID)) {
-	                System.out.println("[Starvation] P" + p.processID +
-	                        " suffered starvation (original priority: " +
-	                        originalPriority[p.processID] + ")");
-	            }
-	        }
-	    }
+        completed.add(p);
+
+        synchronized (memoryLock) {
+            availableMemory += p.memoryRequired;
+        }
+
+        currentTime = endTime;
+    }
+
+    // Store starvation info for printing
+    for (PCB p : completed) {
+        if (starvedProcesses.contains(p.processID)) {
+            System.out.println("[Starvation] P" + p.processID +
+                    " suffered starvation (original priority: " +
+                    originalPriority[p.processID] + ")");
+        }
+    }
+}
 //~~~~~~~~~~~~~~~SADEEM's end PART ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	    // ═════════════════════════════════════════════════════════════════════════
 	    //  OUTPUT METHODS
