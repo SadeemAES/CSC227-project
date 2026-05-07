@@ -155,11 +155,11 @@ public class CPUScheduler {
         
         // Start threads
         thread1.start();
-        thread2.start();
-
-        // Wait for Thread 1 to finish loading
+        
         thread1.join();
 
+        
+        thread2.start();
         //wait for Thread 2 to transfer to the ready queue
         thread2.join();
         
