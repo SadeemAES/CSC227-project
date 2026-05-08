@@ -47,14 +47,20 @@ public class CPUScheduler {
         System.out.println("  1. Shortest Job First (SJF)");
         System.out.println("  2. Round Robin (RR, q=5ms)");
         System.out.println("  3. Priority Scheduling (Non-Preemptive)");
-        System.out.print("Choice [1/2/3]: ");
+        System.out.println("  4. Exit");
+
+        System.out.print("Choice [1/2/3/4]: ");
         int choice = Integer.parseInt(sc.nextLine().trim());
 
-        String algorithm;
+        String algorithm; 
         switch (choice) {
             case 1:  algorithm = "SJF";      break;
             case 2:  algorithm = "RR";       break;
             case 3:  algorithm = "Priority"; break;
+            case 4:         System.out.println("Syestem Exit Successfully.. Goodbye ...."); 
+                            sc.close();
+                            return;
+
             default: System.out.println("Invalid choice. Defaulting to SJF."); algorithm = "SJF";
         }
 
@@ -356,7 +362,7 @@ public class CPUScheduler {
             }
 
             completed.add(p);
-
+ 
             synchronized (memoryLock) {
                 availableMemory += p.memoryRequired;
             }
