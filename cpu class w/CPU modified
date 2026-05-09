@@ -161,16 +161,9 @@ public class CPUScheduler {
         
          }, "Thread-2-MemoryManager");
 
-       /* 
+      
         // Start threads
-        thread1.start();
-        
-        thread1.join();
-
-        
-        thread2.start();
-        //wait for Thread 2 to transfer to the ready queue
-        thread2.join();*/
+       
         
         thread1.start();
         thread2.start();
