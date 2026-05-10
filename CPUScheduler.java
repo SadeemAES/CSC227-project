@@ -1,5 +1,4 @@
-package project;
-
+package csc227;
 
 
 import java.io.*;
@@ -26,9 +25,14 @@ public class CPUScheduler {
     public static void main(String[] args) throws Exception {
 
         Scanner sc = new Scanner(System.in);
+        
+        while (true) {
 
-        ///////////////////////////////////// haya part 1 start here 
-        ///////////////////////////////////////////
+            jobQueue.clear(); // Clears the job queue
+            readyQueue.clear(); // Clears the ready queue
+            availableMemory = TOTAL_MEMORY;
+            thread1Done = false;
+            allDone = false;
 
 
         System.out.println("________________________________________");
@@ -43,24 +47,33 @@ public class CPUScheduler {
         System.out.println("  1. Shortest Job First (SJF)");
         System.out.println("  2. Round Robin (RR, q=5ms)");
         System.out.println("  3. Priority Scheduling (Non-Preemptive)");
-        System.out.print("Choice [1/2/3]: ");
+        System.out.println("  4. Exit");
+
+        System.out.print("Choice [1/2/3/4]: ");
         int choice = Integer.parseInt(sc.nextLine().trim());
 
-        String algorithm;
+        String algorithm; 
         switch (choice) {
             case 1:  algorithm = "SJF";      break;
             case 2:  algorithm = "RR";       break;
             case 3:  algorithm = "Priority"; break;
+            case 4:         System.out.println("Syestem Exit Successfully.. Goodbye ...."); 
+                            sc.close();
+                            return;
+
             default: System.out.println("Invalid choice. Defaulting to SJF."); algorithm = "SJF";
         }
 
         System.out.println("\nRunning " + algorithm + " scheduler...\n");
 
-        final String finalFilePath = "job.txt" ;//----------------------------------------------------------------------
+        final String finalFilePath = "job.txt" ; // Storing the job file name.
+
         final String finalAlgorithm = algorithm;
 
         // ── Thread 1: Read file then add it to the Job Queue ──────────────────────────────────
-        Thread thread1 = new Thread(() -> {
+      
+        
+        Thread thread1 = new Thread(() -> { // Creates Thread 1 to read jobs from job file
             try {
                 BufferedReader br = new BufferedReader(new FileReader(finalFilePath));
                 String line;
@@ -76,61 +89,74 @@ public class CPUScheduler {
                     int priority = Integer.parseInt(left[2].trim());
                     int memory   = Integer.parseInt(parts[1].trim());
 
-                    PCB pcb = new PCB(id, burst, priority, memory, order++);
-                    synchronized (jobQueueLock) {
+                    PCB pcb = new PCB(id, burst, priority, memory, order++); // Creates a new PCB object
+                    synchronized (jobQueueLock) { // Locks the job queue before editing it
                         jobQueue.add(pcb);
                         System.out.println("[Thread 1] Process P" + id +
                                 " added to Job Queue (Burst=" + burst +
                                 "ms, Priority=" + priority +
                                 ", Memory=" + memory + "MB)");
-                    }
+                    } // Unlocks the job queue
                 }
                 br.close();
             } catch (IOException e) {
                 System.err.println("[Thread 1] Error reading file: " + e.getMessage());
             }
-            thread1Done = true;
+            thread1Done = true; // Marks that Thread 1 finished loading jobs
+            
             System.out.println("[Thread 1] All processes loaded. Thread terminating.");
         }, "Thread-1-FileLoader");
 
         // ── Thread 2: from Job Queue to Ready Queue (memory check) ─────────────────
-        Thread thread2 = new Thread(() -> {
+        Thread thread2 = new Thread(() -> { // Creates Thread 2 to move jobs from Job Queue to Ready Queue
             while (true) {
-                PCB nextJob = null;
+               
+            	PCB nextJob = null; // Stores the next process to move to Ready Queue
 
-                synchronized (jobQueueLock) {
-                    if (!jobQueue.isEmpty()) {
-                        nextJob = jobQueue.peek();
-                    }
-                }
+            	synchronized (jobQueueLock) { // Locks Job Queue before accessing it
 
-                if (nextJob != null) {
-                    synchronized (memoryLock) {
-                        if (availableMemory >= nextJob.memoryRequired) {
-                            synchronized (jobQueueLock) {
-                                jobQueue.poll(); // remove from job queue
-                            }
-                            availableMemory -= nextJob.memoryRequired;
-                            nextJob.state = "ready";
-                            synchronized (readyQueueLock) {
-                                readyQueue.add(nextJob);
-                            }
-                            System.out.println("[Thread 2] Process P" + nextJob.processID +
-                                    " moved to Ready Queue. Available memory: " +
-                                    availableMemory + "MB");
-                        }
-                    }
-                }
+            	    Iterator<PCB> it = jobQueue.iterator(); 
+            	    while (it.hasNext()) {
+            	        PCB p = it.next();
+
+            	        synchronized (memoryLock) { // Locks memory before checking available memory
+
+            	            // Checks if enough memory is available for this process
+            	            if (availableMemory >= p.memoryRequired) {
+
+            	                nextJob = p; 
+            	                availableMemory -= p.memoryRequired; // Allocates memory
+            	                it.remove();
+            	                break;
+            	            }
+            	        }
+            	    }
+            	}
+
+            	if (nextJob != null) {
+
+            	    nextJob.state = "ready"; // Changes process state to ready
+
+            	    synchronized (readyQueueLock) { // Locks Ready Queue before editing it
+            	        readyQueue.add(nextJob); // Adds process to Ready Queue
+            	    }
+
+            	    System.out.println("[Thread 2] Process P" + nextJob.processID +
+            	            " moved to Ready Queue. Available memory: " +
+            	            availableMemory + "MB");
+            	}
                 
                 
-                ///////////////////////////////////// Nora part 2 start here 
-                ////////////////////////////////////////
+                
+            	// if Thread1 done and no more jobs can be admitted
+            	if (thread1Done && jobQueue.isEmpty()) {
+            	    break;
+            	}
 
-                // if Thread1 done AND job queue empty AND all processes finished
-                if (thread1Done && jobQueue.isEmpty() && allDone) {
-                    break;
-                }
-
+            	if (thread1Done && nextJob == null) {
+            	    System.out.println("[Thread 2] No more processes can be admitted because of memory limit.");
+            	    break;
+            	}
                 
                 //this try pause Thread2 to reduce CPU storage 
                 try { Thread.sleep(1); } catch (InterruptedException ignored) {}
@@ -143,32 +169,28 @@ public class CPUScheduler {
         
          }, "Thread-2-MemoryManager");
 
-        
+      
         // Start threads
+       
+        
         thread1.start();
         thread2.start();
 
-        // Wait for Thread 1 to finish loading
         thread1.join();
-
-        //wait for Thread 2 to transfer to the ready queue
-        Thread.sleep(50);
-
+        thread2.join();
+        
         // ── Main Thread array for algorithm───────────────────────────────────────────
         List<PCB> allProcesses = new ArrayList<>();
        
-        synchronized (readyQueueLock) {
+        synchronized (readyQueueLock) {// Locks the ready queue before copying from it
+        	
             allProcesses.addAll(readyQueue);
         }
         
-        
-        // Also grab remaining in job queue (in case the process did not enter the ready queue)
-        synchronized (jobQueueLock) {
-            allProcesses.addAll(jobQueue);
-        }
 
-        List<GanttEntry> gantt = new ArrayList<>();
-        List<PCB> completed   = new ArrayList<>();
+        List<GanttEntry> gantt = new ArrayList<>(); //  to store Gantt chart entries
+        List<PCB> completed   = new ArrayList<>(); //  to store completed processes
+
 
         switch (finalAlgorithm) {
             case "SJF":      runSJF(allProcesses, gantt, completed);      break;
@@ -177,8 +199,7 @@ public class CPUScheduler {
         }
 
         // Signal Thread 2 to stop
-        allDone = true;
-        thread2.join();
+        allDone = true;// Marks that all scheduling work is done
 
         // ── Output ────────────────────────────────────────────────────────────
         printGanttChart(gantt);
@@ -186,10 +207,11 @@ public class CPUScheduler {
         printMetrics(completed);
 
         if (finalAlgorithm.equals("Priority")) {
-            printStarvationInfo(completed);
+            printStarvationInfo(completed);// Prints starvation information for Priority Scheduling
         }
 
-        sc.close();
+        System.out.println("\nReturning to main menu...\n");
+        }
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -198,7 +220,7 @@ public class CPUScheduler {
     // ── SJF (Non-Preemptive) ─────────────────────────────────────────────────
     private static void runSJF(List<PCB> processes, List<GanttEntry> gantt, List<PCB> completed) {
         List<PCB> queue = new ArrayList<>(processes);
-        int currentTime = 0;
+        int currentTime = 0;// Starts the CPU time
 
         while (!queue.isEmpty()) {
             // Sort by burst time, ties broken by arrival order
@@ -210,7 +232,7 @@ public class CPUScheduler {
             p.state = "running";
             int burstStart = p.burstTime;
 
-            if (p.startTime == -1) p.startTime = currentTime;
+            if (p.startTime == -1) p.startTime = currentTime;// Sets the start time if it was not set before
 
             int endTime = currentTime + p.burstTime;
             gantt.add(new GanttEntry(p.processID, currentTime, endTime, burstStart, 0));
@@ -221,15 +243,15 @@ public class CPUScheduler {
             p.state           = "terminated";
             completed.add(p);
             
-            synchronized (memoryLock) {
-                availableMemory += p.memoryRequired;
+            synchronized (memoryLock) {// Locks memory before updating it
+                availableMemory += p.memoryRequired;// Frees the memory used by the process
             } 
             
             currentTime = endTime;
         }
     }
 
-    // ~~~~~~~~~~~ Round Robin (q = 5ms) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    // ───────────────── Round Robin (q = 5ms) ──────────────────────────────────
    
     private static void runRR(List<PCB> processes, List<GanttEntry> gantt, List<PCB> completed) {
         int quantum = 5;
@@ -242,7 +264,7 @@ public class CPUScheduler {
 
             if (p.startTime == -1) p.startTime = currentTime;
 
-            int burstStart = p.remainingBurst; 
+            int burstStart = p.remainingBurst; // Stores the remaining burst before execution
             int execTime   = Math.min(quantum, p.remainingBurst);
             int endTime    = currentTime + execTime;
 
@@ -252,14 +274,14 @@ public class CPUScheduler {
             p.remainingBurst -= execTime;
             currentTime = endTime;
 
-            if (p.remainingBurst == 0) {
+            if (p.remainingBurst == 0) { // Checks if it finished
                 p.terminationTime = currentTime;
                 p.turnaroundTime  = p.terminationTime;
                 p.waitingTime     = p.turnaroundTime - p.burstTime;
                 p.state           = "terminated";
                 completed.add(p);
                 
-                synchronized (memoryLock) {
+                synchronized (memoryLock) {// Locks memory before updating it
                     availableMemory += p.memoryRequired;
                 } 
                 
@@ -268,41 +290,67 @@ public class CPUScheduler {
                 queue.add(p);
             }
         }
-    }
+    } 
+
 
     // ── Priority (Non-Preemptive) with Aging ──────────────────────────────────
     private static void runPriority(List<PCB> processes, List<GanttEntry> gantt, List<PCB> completed) {
         List<PCB> queue = new ArrayList<>(processes);
         int currentTime = 0;
-        int N = queue.size();
-        int starvationhold = N * 5; // N × 5 ms
+
+        
 
         // Track original priorities for starvation report
         int[] originalPriority = new int[processes.size() + 1];
+    
+        // Saves the original priority of each process.
         for (PCB p : queue) originalPriority[p.processID] = p.priority;
 
+        // To store starved process IDs.
         List<Integer> starvedProcesses = new ArrayList<>();
 
         while (!queue.isEmpty()) {
-            // Apply aging: every 4ms, decrease priority number by 1 for waiting processes
-            for (PCB p : queue) {
-                p.timeInReadyQueue += 1; // simulate 1ms tick
-                if (p.timeInReadyQueue % 4 == 0 && p.priority > 1) {
-                    p.priority--; // improve priority
-                }
-                // Check starvation
-                if (p.timeInReadyQueue > starvationhold) {
-                    if (!starvedProcesses.contains(p.processID)) {
-                        starvedProcesses.add(p.processID);
-                    }
-                }
-            }
 
+        	int N = queue.size();
+            int starvationhold = N * 5; // N × 5 ms
+            
             // Sort by priority (lowest number = highest priority), ties by arrival order
             queue.sort((a, b) -> a.priority != b.priority ? a.priority - b.priority
                     : a.arrivalOrder - b.arrivalOrder);
 
             PCB p = queue.remove(0);
+            int timeSlice = p.burstTime;  // Stores how long the other processes will wait
+
+            // Update waiting time for all processes still in ready queue
+            for (PCB waiting : queue) {
+
+                int oldWaitingTime = waiting.timeInReadyQueue;
+                waiting.timeInReadyQueue += timeSlice;
+
+                // Check starvation: if waiting time is more than N × 5 ms
+                if (waiting.timeInReadyQueue > starvationhold &&
+                        !starvedProcesses.contains(waiting.processID)) {
+
+                    starvedProcesses.add(waiting.processID);
+                }
+
+                // Aging is applied ONLY after the process has suffered starvation
+                if (starvedProcesses.contains(waiting.processID)) {
+ 
+                	//*************************************************************************
+                    int oldAgingTicks = oldWaitingTime / 4; //old aging steps.
+                    int newAgingTicks = waiting.timeInReadyQueue / 4;//new aging steps.
+                    int agingTicks = newAgingTicks - oldAgingTicks; // Calculates how many priority improvements are needed
+
+
+                    for (int t = 0; t < agingTicks; t++) {
+                        if (waiting.priority > 1) {
+                            waiting.priority--;
+                        }
+                    }
+                }
+            }
+
             p.state = "running";
             int burstStart = p.burstTime;
 
@@ -314,36 +362,33 @@ public class CPUScheduler {
             p.terminationTime = endTime;
             p.turnaroundTime  = p.terminationTime;
             p.waitingTime     = p.turnaroundTime - p.burstTime;
-            p.state           = "terminated";
 
-            // Attach starvation flag
             if (starvedProcesses.contains(p.processID)) {
                 p.state = "terminated(starved)";
+            } else {
+                p.state = "terminated";
             }
 
             completed.add(p);
-            
+ 
             synchronized (memoryLock) {
                 availableMemory += p.memoryRequired;
-            }  
-            
+            }
+
             currentTime = endTime;
         }
 
-        // Store starvation info for printing
+        // Print starvation info
         for (PCB p : completed) {
-            if (starvedProcesses.contains(p.processID)) {
+            if (starvedProcesses.contains(p.processID)) {// Checks if the process was starved
                 System.out.println("[Starvation] P" + p.processID +
                         " suffered starvation (original priority: " +
                         originalPriority[p.processID] + ")");
             }
         }
     }
-     
             
             
-///////////////////////////////////// Shouq part 4 start here 
-////////////////////////////////////////
 
             
             // ═════════════════════════════════════════════════════════════════════════
@@ -416,7 +461,7 @@ public class CPUScheduler {
                     p.processID, p.burstTime, p.startTime,
                     p.terminationTime, p.waitingTime, p.turnaroundTime);
             }
-            System.out.println("|________|___________|____________|_________________|_____________|_________|");
+             System.out.println("|________|___________|____________|_________________|_____________|_________|");
 
              }
 
@@ -428,7 +473,7 @@ public class CPUScheduler {
             	}
             	double avgTAT = (completed.size() > 0) ? (double) sumTAT / completed.size() : 0;
 
-            	//  Waiting Time
+             	//  Waiting Time
             	int sumWait = 0;
             	for (PCB p : completed) {
             	    sumWait += p.waitingTime;
@@ -452,7 +497,7 @@ public class CPUScheduler {
                 boolean y = false;
                 for (PCB p : completed) {
                     if (p.state.contains("terminated(starved)")) {
-                        System.out.println(" P" + p.processID + " There is starvation.");
+                        System.out.println(" P" + p.processID + " suffered from starvation.");
                         y = true;
                     }
                 }
@@ -460,4 +505,4 @@ public class CPUScheduler {
             }
             
         }// end class
- 
+   
